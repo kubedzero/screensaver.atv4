@@ -20,110 +20,100 @@
     Note: This is a standalone script to update the offline video entries and
     their checksums
 """
-import urllib2
-import os
-import json
 import hashlib
-import shutil
+import json
+import os
 import sys
+import urllib.request
+import tarfile
 
-applefeed = "http://a1.phobos.apple.com/us/r1000/000/Features/atv/AutumnResources/videos/entries.json"
-applelocalfeed = os.path.join("resources", "entries.json")
-tmpfolder = "tmpvideos"
+apple_local_feed = os.path.join("resources", "entries.json")
+tmp_folder = "tmpvideos"
+apple_resources_tar = "https://sylvan.apple.com/Aerials/resources.tar"
+local_tar = "resources.tar"
+
+
+# Fetch the TAR file containing the latest entries.json and overwrite the local copy
+def get_latest_entries_from_apple():
+    print("Downloading the Apple Aerials resources.tar to disk")
+    urllib.request.urlretrieve(apple_resources_tar, local_tar)
+    # https://www.tutorialspoint.com/How-are-files-extracted-from-a-tar-file-using-Python
+    apple_tar = tarfile.open(local_tar)
+    print("Extracting entries.json from resources.tar and placing in ./resources")
+    apple_tar.extract("entries.json", "resources")
+    apple_tar.close()
+    os.remove(local_tar)
 
 
 def generate_entries_and_checksums():
-    try:
-        req = urllib2.request.Request(applefeed)
-        response = urllib2.urlopen(req)
-    except Exception:
-        print("Failed to open Apple Feed, aborting")
-        return
+    with open(apple_local_feed) as f:
 
-    if response.getcode() == 200:
-        html = response.read()
-        print("Updating offline local video feed file...")
-        with open(applelocalfeed, "w") as f:
-            f.write(html)
-        print("Offline feed file updated!")
-
-        # generating checksums
         print("Starting checksum generator...")
-        if not os.path.exists(tmpfolder):
-            os.mkdir(tmpfolder)
+        # Create the local directory we'll temporarily store videos for checksumming
+        if not os.path.exists(tmp_folder):
+            os.mkdir(tmp_folder)
+        # Dictionary to store the filenames and checksum for each
         checksums = {}
-        failed = []
+        # Dictionary to store the quality levels and the size in megabytes for each
+        # Within each scene, there may be: H264/HEVC, 1080p/4K, SDR/HDR
+        quality_total_size_megabytes = {"url-1080-H264": 0,
+                                        "url-1080-SDR": 0,
+                                        "url-1080-HDR": 0,
+                                        "url-4K-SDR": 0,
+                                        "url-4K-HDR": 0}
 
-        video_feed = json.loads(html)
-        for block in video_feed:
-            for asset in block["assets"]:
-                asset_url = asset["url"]
-                print "Processing video %s..." % (asset_url)
-                file_name = tmpdownload(asset_url)
-                if file_name:
-                    with open(os.path.join(tmpfolder, file_name), "rb") as f:
+        # Define the locations as a set so we get deduping
+        locations = set()
+
+        top_level = json.load(f)
+        # Top-level JSON has assets array, initialAssetCount, version. Inspect each block in assets
+        for block in top_level["assets"]:
+            # Each block contains a location/scene whose name is stored in accessibilityLabel. These may recur
+            current_scene = block["accessibilityLabel"]
+            print("Processing videos for scene:", current_scene)
+            locations.add(current_scene)
+
+            # https://realpython.com/iterate-through-dictionary-python/#iterating-through-keys
+            for video_version in quality_total_size_megabytes.keys():
+                try:
+                    # Try to look up the URL, but catch the KeyError and continue if it wasn't available
+                    asset_url = block[video_version]
+                    print("Downloading video:", asset_url)
+
+                    # Construct the name and path of the local file
+                    local_file_name = asset_url.split('/')[-1]
+                    local_file_path = os.path.join(tmp_folder, local_file_name)
+                    # Download the file to local storage
+                    urllib.request.urlretrieve(asset_url, local_file_path)
+
+                    # Get the size of the file in bytes and add it to an overall size counter
+                    quality_total_size_megabytes[video_version] += os.path.getsize(local_file_path) / 1000 / 1000
+
+                    # Try to open the file
+                    with open(local_file_path, "rb") as f:
+                        # Compute the checksum
                         checksum = hashlib.md5(f.read()).hexdigest()
-                        checksums[file_name] = checksum
-                        os.remove(os.path.join(tmpfolder, file_name))
-                        print "File processed. Checksum= %s" % (checksum)
-                else:
-                    failed.append(asset_url)
+                        # Add the checksum to the dict of checksums we're keeping
+                        checksums[local_file_name] = checksum
+                        # Delete the local copy of the file
+                        os.remove(local_file_path)
+                        print("File processed. Checksum:", checksum)
+                except KeyError:
+                    print("Can't find URL for asset type:", video_version)
 
-        shutil.rmtree(tmpfolder)
-        print "Updating checksum file"
-        with open(os.path.join("resources", "checksums.json"), "w") as f:
-            f.write(json.dumps(checksums))
-            print "All done"
-        print "Failed items: %s" % (str(failed))
-    else:
-        print("Failed to open Apple Feed - Wrong status code, aborting")
+            # Now that we've processed all videos, delete the temp directory
+            os.rmdir(tmp_folder)
 
+            # Then write the checksums to file
+            with open(os.path.join("resources", "checksums.json"), "w") as f:
+                print("Writing checksums to disk")
+                f.write(json.dumps(checksums))
 
-def get_locations():
-    try:
-        req = urllib2.request.Request(applefeed)
-        response = urllib2.urlopen(req)
-    except Exception:
-        print("Failed to open Apple Feed, aborting")
-        return
-
-    if response.getcode() == 200:
-        locations = []
-        html = response.read()
-        video_feed = json.loads(html)
-        for block in video_feed:
-            for asset in block["assets"]:
-                if asset["accessibilityLabel"].lower() not in locations:
-                    locations.append(asset["accessibilityLabel"].lower())
-        print locations
-
-    else:
-        print("Failed to open Apple Feed - Wrong status code, aborting")
-
-
-def tmpdownload(url):
-    file_name = url.split('/')[-1]
-    req = urllib2.request.Request(url)
-    u = urllib2.urlopen(req)
-
-    meta = u.info()
-    file_size = int(meta.getheaders("Content-Length")[0])
-    print "Downloading: %s Bytes: %s" % (file_name, file_size)
-
-    file_size_dl = 0
-    block_sz = 8192
-    with open(os.path.join(tmpfolder, file_name), 'wb') as f:
-        while True:
-            _buffer = u.read(block_sz)
-            if not _buffer:
-                return file_name
-            file_size_dl += len(_buffer)
-            f.write(_buffer)
-            status = r"%10d [%3.2f%%]" % (file_size_dl, file_size_dl * 100. / file_size)
-            status = status + chr(8) * (len(status) + 1)
-            print status,
-
-    return False
+            print("Total Megabytes of all video files, per quality:")
+            print(quality_total_size_megabytes)
+            print("Locations seen:")
+            print(locations)
+            print("Stopping checksum generator...")
 
 
 if __name__ == '__main__':
@@ -131,6 +121,8 @@ if __name__ == '__main__':
         if sys.argv[1] == "1":
             generate_entries_and_checksums()
         elif sys.argv[1] == "2":
-            get_locations()
+            get_latest_entries_from_apple()
     else:
-        print("Please specify option.\n 1) update entries and timestamps \n 2) Get locations")
+        print("Please specify option:\n "
+              "1) Update checksums based on existing entries.json \n "
+              "2) Update entries.json from Apple")

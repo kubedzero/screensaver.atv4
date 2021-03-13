@@ -1,3 +1,8 @@
+v1.6.0  (2021-04-01)
+- Kodi 19 Matrix compatible
+- 4K screensavers available
+- Day Night toggle removed
+
 v1.5.1  (08/04/2018)
 - Add spanish translation
 - Add missing strings
