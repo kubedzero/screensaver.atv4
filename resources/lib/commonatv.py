@@ -28,6 +28,7 @@ addon_path = addon.getAddonInfo('path')
 dialog = xbmcgui.Dialog()
 
 applefeed = "http://a1.v2.phobos.apple.com.edgesuite.net/us/r1000/000/Features/atv/AutumnResources/videos/entries.json"
+apple_resources_tar = "https://sylvan.apple.com/Aerials/resources.tar"
 applelocalfeed = os.path.join(addon_path, "resources", "entries.json")
 places = ["All", "London", "Hawaii", "New York City", "San Francisco",
           "China", "Greenland", "Dubai", "Los Angeles", "Liwa", "Hong Kong"]

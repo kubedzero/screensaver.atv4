@@ -21,21 +21,22 @@ from .commonatv import dialog, addon, translate, places
 from .playlist import AtvPlaylist
 from .downloader import Downloader
 
+# Parse the JSON to get a list of URLs and download the files to the download folder
 def offline():
     if addon.getSetting("download-folder") != "" and xbmcvfs.exists(addon.getSetting("download-folder")):
         choose = dialog.select(translate(32014),places)
         if choose > -1:
+            # Initialize the Playlist class, which will (down)load the JSON containing URLs
             atv_playlist = AtvPlaylist()
-            playlist_dict = atv_playlist.getPlaylistJson()
+            top_level_json = atv_playlist.getPlaylistJson()
             download_list = []
-            if playlist_dict:
-                for block in playlist_dict:
-                    for video in block['assets']:
-                        if places[choose].lower() == "all":
-                            download_list.append(video['url'])
-                        else:
-                            if places[choose].lower() == video['accessibilityLabel'].lower():
-                                download_list.append(video['url'])
+            if top_level_json:
+                # Top-level JSON has assets array, initialAssetCount, version. Inspect each block in assets
+                for block in top_level_json["assets"]:
+                    # Each block contains a location/scene whose name is stored in accessibilityLabel. These may recur
+                    # TODO grab only 4K SDR for now, but later fall back to others
+                    download_list.append(block['url-4K-SDR'])
+
             # call downloader
             if download_list:
                 down = Downloader()

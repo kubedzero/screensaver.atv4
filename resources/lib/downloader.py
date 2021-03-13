@@ -37,33 +37,40 @@ class Downloader:
         self.dp = None
         self.path = None
 
+    # Given a list of URLs, attempt to download them into the download folder
     def downloadall(self,urllist):
         self.dp = xbmcgui.DialogProgress()
         self.dp.create(translate(32000), translate(32019))
-        # video checksums - download only the videos that were not downloaded previously
+
+        # Get a dict of checksums (key=filename, value=checksum) if the setting is enabled
         if addon.getSetting("enable-checksums") == "true":
             with open(os.path.join(addon_path, "resources", "checksums.json")) as f:
                 checksums = f.read()
-
             checksums = json.loads(checksums)
+        else:
+            # If the setting was disabled, initialize an empty dict
+            checksums = {}
 
         for url in urllist:
             if not self.stop:
+                # Parse out the file name and construct its expected download location
                 video_file = url.split("/")[-1]
                 localfile = os.path.join(addon.getSetting("download-folder"),video_file)
 
+                # If the file exists at the download location, get its checksum
                 if xbmcvfs.exists(localfile):
                     if addon.getSetting("enable-checksums") == "true":
                         f = xbmcvfs.File(xbmc.translatePath(localfile))
                         file_checksum = hashlib.md5(f.read()).hexdigest()
                         f.close()
 
+                        # If the computed checksum does not match the expected checksum, redownload
                         if video_file in checksums.keys() and checksums[video_file] != file_checksum:
-                            self.download(localfile,url,url.split("/")[-1])
+                            self.download(localfile,url,video_file)
                     else:
-                        self.download(localfile,url,url.split("/")[-1])
+                        self.download(localfile,url,video_file)
                 else:
-                    self.download(localfile,url,url.split("/")[-1])
+                    self.download(localfile,url,video_file)
             else:
                 break
 
@@ -75,6 +82,10 @@ class Downloader:
         self.path = xbmc.translatePath(path)
         xbmc.sleep(500)
         start_time = time.time()
+
+        # Setup for disabling SSL cert verification, as the Apple cert is bad
+        # https://stackoverflow.com/questions/43204012/how-to-disable-ssl-verification-for-urlretrieve
+        ssl._create_default_https_context = ssl._create_unverified_context
 
         u = urlopen(url)
         meta = u.info()

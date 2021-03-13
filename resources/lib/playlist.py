@@ -20,11 +20,13 @@ import json
 import xbmc
 import os
 import xbmcvfs
+import ssl
+import tarfile
 from random import shuffle
-from .commonatv import applefeed, applelocalfeed, addon, PY3
+from .commonatv import apple_resources_tar, applelocalfeed, addon, PY3
 
 if PY3:
-    from urllib.request import Request, urlopen
+    import urllib.request
 else:
     from urllib2 import Request, urlopen
 
@@ -32,89 +34,74 @@ else:
 class AtvPlaylist:
     def __init__(self, ):
         if not xbmc.getCondVisibility("Player.HasMedia"):
+            # If we're not forcing offline state, update the local JSON with the copy from Apple
             if addon.getSetting("force-offline") == "false":
                 try:
-                    req = Request(applefeed)
-                    with urlopen(req) as response:
-                        self.html = json.loads(response.read())
+                    self.get_latest_entries_from_apple()
+                    self.local_feed()
                 except Exception:
                     self.local_feed()
             else:
                 self.local_feed()
         else:
-            self.html = {}
+            self.top_level_json = {}
 
+    # Fetch the TAR file containing the latest entries.json and overwrite the local copy
+    def get_latest_entries_from_apple():
+        local_tar = "resources.tar"
+        print("Downloading the Apple Aerials resources.tar to disk")
+
+        # Setup for disabling SSL cert verification, as the Apple cert is bad
+        # https://stackoverflow.com/questions/43204012/how-to-disable-ssl-verification-for-urlretrieve
+        ssl._create_default_https_context = ssl._create_unverified_context
+
+        urllib.request.urlretrieve(apple_resources_tar, local_tar)
+        # https://www.tutorialspoint.com/How-are-files-extracted-from-a-tar-file-using-Python
+        apple_tar = tarfile.open(local_tar)
+        print("Extracting entries.json from resources.tar and placing in ./resources")
+        apple_tar.extract("entries.json", "resources")
+        apple_tar.close()
+        os.remove(local_tar)
+
+    # Create a class variable with the JSON loaded and parseable
     def local_feed(self):
-        with open(applelocalfeed, "r") as f:
-            self.html = json.loads(f.read())
+        self.top_level_json = json.load(applelocalfeed)
 
     def getPlaylistJson(self):
-        return self.html
+        return self.top_level_json
 
     def getPlaylist(self):
-        current_time = xbmc.getInfoLabel("System.Time")
-        am_pm = xbmc.getInfoLabel("System.Time(xx)")
-        current_hour = current_time.split(":")[0]
-        if am_pm == "PM":
-            if int(current_hour) < 12:
-                current_hour = int(current_hour) + 12
-            else:
-                current_hour = int(current_hour)
-        else:
-            current_hour = int(current_hour)
-        day_night = ''
-        if current_hour < 19:
-            if current_hour > 7:
-                day_night = 'day'
-            else:
-                day_night = 'night'
-        if current_hour > 19:
-            day_night = 'night'
 
         self.playlist = []
-        if self.html:
-            for block in self.html:
-                for video in block['assets']:
+        if self.top_level_json:
+            # Top-level JSON has assets array, initialAssetCount, version. Inspect each block in assets
+            for block in self.top_level_json["assets"]:
+                # Each block contains a location/scene whose name is stored in accessibilityLabel. These may recur
+                # TODO grab only 4K SDR for now, but later fall back to others
+                url = block['url-4K-SDR']
+                file_name = url.split("/")[-1]
+                location = block['accessibilityLabel']
 
-                    url = video['url']
+                # By default, we assume a local copy of the file doesn't exist
+                exists_on_disk = False
 
-                    exists_on_disk = False
+                # Inspect the disk to see if the file exists in the download location
+                local_file_path = os.path.join(addon.getSetting("download-folder"), file_name)
+                if xbmcvfs.exists(local_file_path):
+                    # Overwrite the Apple URL with the path to the file on disk
+                    url = local_file_path
+                    # Mark that the file exists on disk
+                    exists_on_disk = True
 
-                    # check if file exists on disk
-                    movie = url.split("/")[-1]
-                    localfilemov = os.path.join(addon.getSetting("download-folder"), movie)
-                    if xbmcvfs.exists(localfilemov):
-                        url = localfilemov
-                        exists_on_disk = True
+                # If the file exists locally or we're not in offline mode, add it to the playlist
+                if exists_on_disk or addon.getSetting("force-offline") == "true":
+                    self.playlist.append(url)
+                    # # build setting
+                    # thisvideosetting = "enable-" + location.lower().replace(" ", "")
+                    # if addon.getSetting(thisvideosetting) == "true":
+                    #     self.playlist.append(url)
 
-                    # check for existence of the trancoded file .mp4 only
-                    localfilemp4 = os.path.join(addon.getSetting("download-folder"), movie.replace('.mov', '.mp4'))
-                    if xbmcvfs.exists(localfilemp4):
-                        url = localfilemp4
-                        exists_on_disk = True
-
-                    # Continue to next item if the file is not in disk and the
-                    # setting refuse-stream is enabled
-                    if not exists_on_disk and addon.getSetting("force-offline") == "true":
-                        continue
-
-                    # build setting
-                    thisvideosetting = "enable-" + video['accessibilityLabel'].lower().replace(" ", "")
-
-                    if addon.getSetting(thisvideosetting) == "true":
-                        if video['timeOfDay'] == 'day':
-                            if addon.getSetting("time-of-day") == '0' or addon.getSetting("time-of-day") == '1':
-                                self.playlist.append(url)
-                            if addon.getSetting("time-of-day") == '3':
-                                if day_night == 'day':
-                                    self.playlist.append(url)
-                        if video['timeOfDay'] == 'night':
-                            if addon.getSetting("time-of-day") == '0' or addon.getSetting("time-of-day") == '2':
-                                self.playlist.append(url)
-                            if addon.getSetting("time-of-day") == '3':
-                                if day_night == 'night':
-                                    self.playlist.append(url)
-
+            # Now that we're done building the playlist, shuffle and return to the caller
             shuffle(self.playlist)
             return self.playlist
         else:
