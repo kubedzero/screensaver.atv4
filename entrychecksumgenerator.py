@@ -26,6 +26,7 @@ import os
 import sys
 import urllib.request
 import tarfile
+import ssl
 
 apple_local_feed = os.path.join("resources", "entries.json")
 tmp_folder = "tmpvideos"
@@ -36,6 +37,11 @@ local_tar = "resources.tar"
 # Fetch the TAR file containing the latest entries.json and overwrite the local copy
 def get_latest_entries_from_apple():
     print("Downloading the Apple Aerials resources.tar to disk")
+
+    # Setup for disabling SSL cert verification, as the Apple cert is bad
+    # https://stackoverflow.com/questions/43204012/how-to-disable-ssl-verification-for-urlretrieve
+    ssl._create_default_https_context = ssl._create_unverified_context
+
     urllib.request.urlretrieve(apple_resources_tar, local_tar)
     # https://www.tutorialspoint.com/How-are-files-extracted-from-a-tar-file-using-Python
     apple_tar = tarfile.open(local_tar)
@@ -46,7 +52,7 @@ def get_latest_entries_from_apple():
 
 
 def generate_entries_and_checksums():
-    with open(apple_local_feed) as f:
+    with open(apple_local_feed) as feed_file:
 
         print("Starting checksum generator...")
         # Create the local directory we'll temporarily store videos for checksumming
@@ -65,7 +71,7 @@ def generate_entries_and_checksums():
         # Define the locations as a set so we get deduping
         locations = set()
 
-        top_level = json.load(f)
+        top_level = json.load(feed_file)
         # Top-level JSON has assets array, initialAssetCount, version. Inspect each block in assets
         for block in top_level["assets"]:
             # Each block contains a location/scene whose name is stored in accessibilityLabel. These may recur
@@ -83,6 +89,11 @@ def generate_entries_and_checksums():
                     # Construct the name and path of the local file
                     local_file_name = asset_url.split('/')[-1]
                     local_file_path = os.path.join(tmp_folder, local_file_name)
+
+                    # Setup for disabling SSL cert verification, as the Apple cert is bad
+                    # https://stackoverflow.com/questions/43204012/how-to-disable-ssl-verification-for-urlretrieve
+                    ssl._create_default_https_context = ssl._create_unverified_context
+
                     # Download the file to local storage
                     urllib.request.urlretrieve(asset_url, local_file_path)
 
@@ -95,25 +106,26 @@ def generate_entries_and_checksums():
                         checksum = hashlib.md5(f.read()).hexdigest()
                         # Add the checksum to the dict of checksums we're keeping
                         checksums[local_file_name] = checksum
-                        # Delete the local copy of the file
-                        os.remove(local_file_path)
-                        print("File processed. Checksum:", checksum)
+
+                    # Delete the local copy of the file
+                    os.remove(local_file_path)
+                    print("File processed. Checksum:", checksum)
                 except KeyError:
                     print("Can't find URL for asset type:", video_version)
 
-            # Now that we've processed all videos, delete the temp directory
-            os.rmdir(tmp_folder)
+        # Now that we've processed all videos, delete the temp directory
+        os.rmdir(tmp_folder)
 
-            # Then write the checksums to file
-            with open(os.path.join("resources", "checksums.json"), "w") as f:
-                print("Writing checksums to disk")
-                f.write(json.dumps(checksums))
+        # Then write the checksums to file
+        with open(os.path.join("resources", "checksums.json"), "w") as f:
+            print("Writing checksums to disk")
+            f.write(json.dumps(checksums))
 
-            print("Total Megabytes of all video files, per quality:")
-            print(quality_total_size_megabytes)
-            print("Locations seen:")
-            print(locations)
-            print("Stopping checksum generator...")
+        print("Total Megabytes of all video files, per quality:")
+        print(quality_total_size_megabytes)
+        print("Locations seen:")
+        print(locations)
+        print("Stopping checksum generator...")
 
 
 if __name__ == '__main__':
