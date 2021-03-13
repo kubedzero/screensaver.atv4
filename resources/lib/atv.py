@@ -136,7 +136,14 @@ class Screensaver(xbmcgui.WindowXML):
 
     def start_playback(self):
         self.playindex = 0
-        self.atv4player.play(self.videoplaylist[self.playindex], windowed=True)
+        # If the URL contains HTTPS, we need to disable SSL verification
+        # NOTE: Old Apple URLs were HTTP, new URLs are HTTPS with a bad cert
+        # https://kodi.wiki/view/SSL_certificates#Disabling_the_check
+        file = self.videoplaylist[self.playindex]
+        if "https" in file:
+            xbmc.log("We found HTTPS, modifying", xbmc.LOGDEBUG)
+            file = file + "|verifypeer=false"
+        self.atv4player.play(file, windowed=True)
         while self.active and not monitor.abortRequested():
             monitor.waitForAbort(1)
             if not self.atv4player.isPlaying() and self.active:
@@ -144,7 +151,7 @@ class Screensaver(xbmcgui.WindowXML):
                     self.playindex += 1
                 else:
                     self.playindex = 0
-                self.atv4player.play(self.videoplaylist[self.playindex], windowed=True)
+                self.atv4player.play(file, windowed=True)
 
 
 def run(params=False):

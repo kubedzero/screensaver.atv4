@@ -35,7 +35,8 @@ class AtvPlaylist:
     def __init__(self, ):
         if not xbmc.getCondVisibility("Player.HasMedia"):
             # If we're not forcing offline state, update the local JSON with the copy from Apple
-            if addon.getSetting("force-offline") == "false":
+            if addon.getSetting("refuse-stream") == "false":
+
                 try:
                     self.get_latest_entries_from_apple()
                     self.local_feed()
@@ -95,7 +96,7 @@ class AtvPlaylist:
                     exists_on_disk = True
 
                 # If the file exists locally or we're not in offline mode, add it to the playlist
-                if exists_on_disk or addon.getSetting("force-offline") == "true":
+                if exists_on_disk or addon.getSetting("refuse-stream") == "false":
                     self.playlist.append(url)
                     # # build setting
                     # thisvideosetting = "enable-" + location.lower().replace(" ", "")
@@ -104,6 +105,7 @@ class AtvPlaylist:
 
             # Now that we're done building the playlist, shuffle and return to the caller
             shuffle(self.playlist)
+            xbmc.log(str(self.playlist), xbmc.LOGDEBUG)
             return self.playlist
         else:
             return None
