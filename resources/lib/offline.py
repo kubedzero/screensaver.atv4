@@ -21,10 +21,11 @@ from .commonatv import dialog, addon, translate, places
 from .playlist import AtvPlaylist
 from .downloader import Downloader
 
+
 # Parse the JSON to get a list of URLs and download the files to the download folder
 def offline():
     if addon.getSetting("download-folder") != "" and xbmcvfs.exists(addon.getSetting("download-folder")):
-        choose = dialog.select(translate(32014),places)
+        choose = dialog.select(translate(32014), places)
         if choose > -1:
             # Initialize the Playlist class, which will (down)load the JSON containing URLs
             atv_playlist = AtvPlaylist()
@@ -45,5 +46,3 @@ def offline():
                 dialog.ok(translate(32000), translate(32012))
     else:
         dialog.ok(translate(32000), translate(32013))
-
-

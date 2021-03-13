@@ -65,7 +65,8 @@ class AtvPlaylist:
 
     # Create a class variable with the JSON loaded and parseable
     def local_feed(self):
-        self.top_level_json = json.load(applelocalfeed)
+        with open(applelocalfeed, "r") as f:
+            self.top_level_json = json.loads(f.read())
 
     def getPlaylistJson(self):
         return self.top_level_json
