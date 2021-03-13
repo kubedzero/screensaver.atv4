@@ -15,10 +15,6 @@
 
     You should have received a copy of the GNU General Public License
     along with this program.  If not, see <http://www.gnu.org/licenses/>.
-
-
-    Note: This is a standalone script to update the offline video entries and
-    their checksums
 """
 import sys
 from resources.lib import atv

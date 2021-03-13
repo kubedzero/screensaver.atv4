@@ -23,7 +23,7 @@ import xbmcvfs
 import ssl
 import tarfile
 from random import shuffle
-from .commonatv import apple_resources_tar, applelocalfeed, addon, PY3
+from .commonatv import apple_resources_tar, apple_local_tar, applelocalfeed, addon, addon_path, PY3
 
 if PY3:
     import urllib.request
@@ -48,21 +48,20 @@ class AtvPlaylist:
             self.top_level_json = {}
 
     # Fetch the TAR file containing the latest entries.json and overwrite the local copy
-    def get_latest_entries_from_apple():
-        local_tar = "resources.tar"
+    def get_latest_entries_from_apple(self):
         print("Downloading the Apple Aerials resources.tar to disk")
 
         # Setup for disabling SSL cert verification, as the Apple cert is bad
         # https://stackoverflow.com/questions/43204012/how-to-disable-ssl-verification-for-urlretrieve
-        ssl._create_default_https_context = ssl._create_unverified_context
-
-        urllib.request.urlretrieve(apple_resources_tar, local_tar)
+        # ssl._create_default_https_context = ssl._create_unverified_context
+        urllib.request.urlretrieve("http://sylvan.apple.com/Aerials/resources.tar", apple_local_tar)
         # https://www.tutorialspoint.com/How-are-files-extracted-from-a-tar-file-using-Python
-        apple_tar = tarfile.open(local_tar)
+        apple_tar = tarfile.open(apple_local_tar)
         print("Extracting entries.json from resources.tar and placing in ./resources")
-        apple_tar.extract("entries.json", "resources")
+        apple_tar.extract("entries.json", os.path.join(addon_path, "resources"))
+
         apple_tar.close()
-        os.remove(local_tar)
+        os.remove(apple_local_tar)
 
     # Create a class variable with the JSON loaded and parseable
     def local_feed(self):
@@ -81,6 +80,11 @@ class AtvPlaylist:
                 # Each block contains a location/scene whose name is stored in accessibilityLabel. These may recur
                 # TODO grab only 4K SDR for now, but later fall back to others
                 url = block['url-4K-SDR']
+                # If the URL contains HTTPS, we need revert to HTTP to avoid bad SSL cert
+                # NOTE: Old Apple URLs were HTTP, new URLs are HTTPS with a bad cert
+                if "https" in url:
+                    url = url.replace("https://", "http://")
+
                 file_name = url.split("/")[-1]
                 location = block['accessibilityLabel']
 
@@ -99,13 +103,13 @@ class AtvPlaylist:
                 if exists_on_disk or addon.getSetting("refuse-stream") == "false":
                     self.playlist.append(url)
                     # # build setting
+                    # TODO enable location enable/disable
                     # thisvideosetting = "enable-" + location.lower().replace(" ", "")
                     # if addon.getSetting(thisvideosetting) == "true":
                     #     self.playlist.append(url)
 
             # Now that we're done building the playlist, shuffle and return to the caller
             shuffle(self.playlist)
-            xbmc.log(str(self.playlist), xbmc.LOGDEBUG)
             return self.playlist
         else:
             return None
